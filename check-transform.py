@@ -5,13 +5,30 @@ from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
 from torchvision.transforms import ToTensor, Lambda
 
-ds = datasets.FashionMNIST(
-    root="data",
-    train=True,
-    download=True,
-    transform=ToTensor(),
-    target_transform=Lambda(lambda y: torch.zeros(10, dtype=torch.float).scatter_(0, torch.tensor(y), value=1))
-)
-ds_no_transform = datasets.FashionMNIST(root="data", train=False, download=True)
-print(ds)
-print(ds_no_transform)
+if torch.accelerator.is_available():
+    device = torch.accelerator.current_accelerator().type
+else:
+    device = torch.device('cpu')
+
+class NeuralNetwork(nn.Module):
+    def __init(self):
+        super().__init__()
+        self.flatten = nn.Flatten
+        self.linear_relu_stack = nn.Sequential(
+            nn.Linear(28 * 28, 512),
+            nn.ReLU(),
+            nn.Linear(512, 512),
+            nn.ReLU(),
+            nn.Linear(512, 10),
+        )
+    def forward(self, x):
+        x = self.flatten(x)
+        logits = self.linear_relu_stack(x)
+        return logits
+
+model = NeuralNetwork().to(device)
+X = torch.rand(1,28,28, device=device)
+logits = model(X)
+#pred_probab = nn.Softmax(dim=1)(logits)
+#y_pred = pred_probab.argmax(1)
+#print(f"Predicted class : {y_pred}")
