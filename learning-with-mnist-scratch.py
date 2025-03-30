@@ -71,34 +71,22 @@ print(accuracy(preds, yb))
 lr = 0.5
 epochs = 2
 
+for epoch in range(epochs):
+    # n : Nubmer of samples
+    # bs : Batch size
 
+    for i in range((n - 1) // bs + 1):
+        #         set_trace()
+        start_i = i * bs
+        end_i = start_i + bs
+        xb = x_train[start_i:end_i]
+        yb = y_train[start_i:end_i]
+        pred = model(xb)
+        loss = loss_func(pred, yb)
 
-from torch import nn
-
-class Mnist_Logistic(nn.Module):
-    def __init__(self):
-        super().__init__()
-        self.weights = nn.Parameter(torch.randn(748,10) / math.sqrt(748)) #Input #Input #Input
-        self.bias = nn.Parameter(torch.zeros(10)) # Output
-    def forward(self, xb):
-        return xb @ self.weights + self.bias
-
-model = Mnist_Logistic()
-
-def fit():
-    for epoch in range(epochs):
-        for i in range((n-1)//bs+1):
-            start_i = i*bs
-            end_i = start_i + bs
-            xb = x_train[start_i:end_i]
-            yb = y_train[start_i:end_i]
-            pred = model(xb)
-            loss = loss_func(pred, yb)
-
-            loss.backward()
-            with torch.no_grad():
-                for p in model.parameters():
-                    p -= p.grad * lr
-                model.zero_grad()
-
-fit()
+        loss.backward()
+        with torch.no_grad():
+            weights -= weights.grad * lr
+            bias -= bias.grad * lr
+            weights.grad.zero_()
+            bias.grad.zero_()
