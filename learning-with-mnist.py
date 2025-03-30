@@ -36,10 +36,12 @@ bias = torch.zeros(10, requires_grad=True)
 def log_softmax(x):
     return x - x.exp().sum(-1).log().unsqueeze(-1)
 
+
 loss_func = F.cross_entropy
 
+
 def model(xb):
-    #return b @ weights + bias
+    # return b @ weights + bias
     return log_softmax(xb @ weights + bias)
 
 
@@ -49,6 +51,7 @@ xb = x_train[0:bs]
 preds = model(xb)
 preds[0], preds.shape
 print(preds[0], preds.shape)
+
 
 # negative log likelihood
 def nll(input, target):
@@ -71,24 +74,28 @@ print(accuracy(preds, yb))
 lr = 0.5
 epochs = 2
 
-
-
 from torch import nn
+
 
 class Mnist_Logistic(nn.Module):
     def __init__(self):
         super().__init__()
-        self.weights = nn.Parameter(torch.randn(748,10) / math.sqrt(748)) #Input #Input #Input
-        self.bias = nn.Parameter(torch.zeros(10)) # Output
+        self.weights = nn.Parameter(torch.randn(784, 10) / math.sqrt(784))
+        self.bias = nn.Parameter(torch.zeros(10))
+
     def forward(self, xb):
         return xb @ self.weights + self.bias
 
+
 model = Mnist_Logistic()
+
+print(loss_func(model(xb), yb))
+
 
 def fit():
     for epoch in range(epochs):
-        for i in range((n-1)//bs+1):
-            start_i = i*bs
+        for i in range((n - 1) // bs + 1):
+            start_i = i * bs
             end_i = start_i + bs
             xb = x_train[start_i:end_i]
             yb = y_train[start_i:end_i]
@@ -101,4 +108,6 @@ def fit():
                     p -= p.grad * lr
                 model.zero_grad()
 
+
 fit()
+print(loss_func(model(xb), yb))

@@ -90,3 +90,4 @@ for epoch in range(epochs):
             bias -= bias.grad * lr
             weights.grad.zero_()
             bias.grad.zero_()
+        print(loss_func(pred, yb), accuracy(pred, yb))
