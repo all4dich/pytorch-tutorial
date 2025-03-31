@@ -96,15 +96,26 @@ class Mnist_Logistic(nn.Module):
         #return xb @ self.weights + self.bias
         return self.lin(xb)
 
+class Mnist_CNN(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.conv1 = nn.Conv2d(1,16, kernel_size=3, stride=2, padding=1)
+        self.conv2 = nn.Conv2d(16,16, kernel_size=3, stride=2, padding=1)
+        self.conv3 = nn.Conv2d(16,10, kernel_size=3, stride=2, padding=1)
+
+    def forward(self, xb):
+        xb = xb.view(-1, 1, 28, 28)
+        xb = F.relu(self.conv1(xb))
+        xb = F.relu(self.conv2(xb))
+        xb = F.relu(self.conv3(xb))
+        xb = F.avg_pool2d(xb, 4)
+        return xb.view(-1, xb.size(1))
 
 print(loss_func(model(xb), yb))
 
 def get_model():
     model = Mnist_Logistic()
     return model, optim.SGD(model.parameters(), lr=lr)
-
-model, optimizer = get_model()
-print(loss_func(model(xb), yb))
 
 def loss_batch(model, loss_func, xb, yb, opt=None):
     loss = loss_func(model(xb), yb)
@@ -135,5 +146,6 @@ def get_data(train_ds, valid_ds, bs):
     return train_dl, valid_dl
 
 train_dl, valid_dl = get_data(train_ds, valid_ds, bs)
-model, opt = get_model()
+model  = Mnist_CNN()
+opt = optim.SGD(model.parameters(), lr=lr, momentum=0.9)
 fit(epochs, model, loss_func, opt, train_dl, valid_dl)
