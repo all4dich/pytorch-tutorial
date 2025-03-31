@@ -33,7 +33,7 @@ x_train, y_train, x_valid, y_valid = map(torch.tensor, (x_train, y_train, x_vali
 train_ds = TensorDataset(x_train, y_train)
 train_dl = DataLoader(train_ds, batch_size=bs)
 valid_ds = TensorDataset(x_valid, y_valid)
-valid_dl = DataLoader(valid_ds, batch_size=bs)
+valid_dl = DataLoader(valid_ds, batch_size=bs * 2)
 
 n, c = x_train.shape
 weights = torch.randn(784, 10) / math.sqrt(784)
@@ -119,6 +119,11 @@ def fit():
             #    model.zero_grad()
             optimizer.step()
             optimizer.zero_grad()
+        model.eval()
+        with torch.no_grad():
+            valid_loss = sum(loss_func(model(xb), yb) for xb, yb in valid_dl)
+
+        print(epoch, valid_loss / len(valid_dl))
 
 fit()
 print(loss_func(model(xb), yb))
