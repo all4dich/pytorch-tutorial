@@ -111,7 +111,17 @@ class Mnist_CNN(nn.Module):
         xb = F.avg_pool2d(xb, 4)
         return xb.view(-1, xb.size(1))
 
-print(loss_func(model(xb), yb))
+class Lambda(nn.Module):
+    def __init__(self, fn):
+        super().__init__()
+        self.fn = fn
+
+    def forward(self, x):
+        return self.fn(x)
+
+def preprocess(x):
+    return x.view(-1, 1, 28, 28)
+
 
 def get_model():
     model = Mnist_Logistic()
@@ -146,6 +156,16 @@ def get_data(train_ds, valid_ds, bs):
     return train_dl, valid_dl
 
 train_dl, valid_dl = get_data(train_ds, valid_ds, bs)
-model  = Mnist_CNN()
+model = nn.Sequential(
+    Lambda(preprocess),
+    nn.Conv2d(1, 16, kernel_size=3, stride=2, padding=1),
+    nn.ReLU(),
+    nn.Conv2d(16, 16, kernel_size=3, stride=2, padding=1),
+    nn.ReLU(),
+    nn.Conv2d(16, 10, kernel_size=3, stride=2, padding=1),
+    nn.ReLU(),
+    nn.AvgPool2d(2, 2),
+    Lambda(lambda x: x.view(x.size(0), -1))
+)
 opt = optim.SGD(model.parameters(), lr=lr, momentum=0.9)
 fit(epochs, model, loss_func, opt, train_dl, valid_dl)
