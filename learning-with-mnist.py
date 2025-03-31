@@ -7,6 +7,7 @@ import numpy as np
 import torch
 import math
 import torch.nn.functional as F
+from torch import optim
 
 DATA_PATH = Path("data")
 PATH = DATA_PATH / "mnist"
@@ -89,8 +90,13 @@ class Mnist_Logistic(nn.Module):
         return self.lin(xb)
 
 
-model = Mnist_Logistic()
+print(loss_func(model(xb), yb))
 
+def get_model():
+    model = Mnist_Logistic()
+    return model, optim.SGD(model.parameters(), lr=lr)
+
+model, optimizer = get_model()
 print(loss_func(model(xb), yb))
 
 
@@ -105,10 +111,12 @@ def fit():
             loss = loss_func(pred, yb)
 
             loss.backward()
-            with torch.no_grad():
-                for p in model.parameters():
-                    p -= p.grad * lr
-                model.zero_grad()
+            #with torch.no_grad():
+            #    for p in model.parameters():
+            #        p -= p.grad * lr
+            #    model.zero_grad()
+            optimizer.step()
+            optimizer.zero_grad()
 
 
 fit()
