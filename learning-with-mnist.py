@@ -8,11 +8,13 @@ import torch
 import math
 import torch.nn.functional as F
 from torch import optim
-from torch.utils.data import TensorDataset
+from torch.utils.data import TensorDataset, DataLoader
 
 DATA_PATH = Path("data")
 PATH = DATA_PATH / "mnist"
 PATH.mkdir(parents=True, exist_ok=True)
+
+bs = 64
 
 URL = "https://github.com/pytorch/tutorials/raw/main/_static/"
 FILENAME = "mnist.pkl.gz"
@@ -29,7 +31,9 @@ with gzip.open(PATH / FILENAME, "rb", "rb") as f:
 
 x_train, y_train, x_valid, y_valid = map(torch.tensor, (x_train, y_train, x_valid, y_valid))
 train_ds = TensorDataset(x_train, y_train)
+train_dl = DataLoader(train_ds, batch_size=bs)
 valid_ds = TensorDataset(x_valid, y_valid)
+valid_dl = DataLoader(valid_ds, batch_size=bs)
 
 n, c = x_train.shape
 weights = torch.randn(784, 10) / math.sqrt(784)
@@ -49,7 +53,6 @@ def model(xb):
     return log_softmax(xb @ weights + bias)
 
 
-bs = 64
 
 xb = x_train[0:bs]
 preds = model(xb)
@@ -105,8 +108,7 @@ print(loss_func(model(xb), yb))
 
 def fit():
     for epoch in range(epochs):
-        for i in range((n - 1) // bs + 1):
-            xb, yb = train_ds[i * bs: i * bs + bs]
+        for xb, yb in train_dl:
             pred = model(xb)
             loss = loss_func(pred, yb)
 
@@ -117,7 +119,6 @@ def fit():
             #    model.zero_grad()
             optimizer.step()
             optimizer.zero_grad()
-
 
 fit()
 print(loss_func(model(xb), yb))
