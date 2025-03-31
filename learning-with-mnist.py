@@ -9,6 +9,7 @@ import math
 import torch.nn.functional as F
 from torch import optim
 from torch.utils.data import TensorDataset, DataLoader
+import numpy as np
 
 DATA_PATH = Path("data")
 PATH = DATA_PATH / "mnist"
@@ -105,25 +106,34 @@ def get_model():
 model, optimizer = get_model()
 print(loss_func(model(xb), yb))
 
+def loss_batch(model, loss_func, xb, yb, opt=None):
+    loss = loss_func(model(xb), yb)
 
-def fit():
+    if opt is not None:
+        loss.backward()
+        opt.step()
+        opt.zero_grad()
+
+    return loss.item(), len(xb)
+
+def fit(epochs, model, loss_func, opt, train_dl, valid_dl):
     for epoch in range(epochs):
+        model.train()
         for xb, yb in train_dl:
-            pred = model(xb)
-            loss = loss_func(pred, yb)
-
-            loss.backward()
-            #with torch.no_grad():
-            #    for p in model.parameters():
-            #        p -= p.grad * lr
-            #    model.zero_grad()
-            optimizer.step()
-            optimizer.zero_grad()
+            loss_batch(model, loss_func, xb, yb, opt)
         model.eval()
         with torch.no_grad():
-            valid_loss = sum(loss_func(model(xb), yb) for xb, yb in valid_dl)
+            losses, nums = zip(
+                *[loss_batch(model, loss_func, xb, yb) for xb, yb in valid_dl]
+            )
+        val_loss = np.sum(np.multiply(losses, nums)) / np.sum(nums)
+        print(epoch, val_loss)
 
-        print(epoch, valid_loss / len(valid_dl))
+def get_data(train_ds, valid_ds, bs):
+    train_dl = DataLoader(train_ds, batch_size=bs, shuffle=True)
+    valid_dl = DataLoader(valid_ds, batch_size=bs * 2)
+    return train_dl, valid_dl
 
-fit()
-print(loss_func(model(xb), yb))
+train_dl, valid_dl = get_data(train_ds, valid_ds, bs)
+model, opt = get_model()
+fit(epochs, model, loss_func, opt, train_dl, valid_dl)
