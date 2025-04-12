@@ -45,6 +45,8 @@ bias = torch.zeros(10, requires_grad=True)
 def log_softmax(x):
     return x - x.exp().sum(-1).log().unsqueeze(-1)
 
+def preprocess(x, y):
+    return x.view(-1, 1, 28, 28), y
 
 loss_func = F.cross_entropy
 
@@ -119,10 +121,6 @@ class Lambda(nn.Module):
     def forward(self, x):
         return self.fn(x)
 
-def preprocess(x):
-    return x.view(-1, 1, 28, 28)
-
-
 def get_model():
     model = Mnist_Logistic()
     return model, optim.SGD(model.parameters(), lr=lr)
@@ -155,17 +153,33 @@ def get_data(train_ds, valid_ds, bs):
     valid_dl = DataLoader(valid_ds, batch_size=bs * 2)
     return train_dl, valid_dl
 
+
+class WrappedDataLoader:
+    def __init__(self, dl, func):
+        self.dl = dl
+        self.func = func
+
+    def __len__(self):
+        return len(self.dl)
+
+    def __iter__(self):
+        for b in self.dl:
+            yield (self.func(*b))
+
 train_dl, valid_dl = get_data(train_ds, valid_ds, bs)
+train_dl = WrappedDataLoader(train_dl, preprocess)
+valid_dl = WrappedDataLoader(valid_dl, preprocess)
+
 model = nn.Sequential(
-    Lambda(preprocess),
     nn.Conv2d(1, 16, kernel_size=3, stride=2, padding=1),
     nn.ReLU(),
     nn.Conv2d(16, 16, kernel_size=3, stride=2, padding=1),
     nn.ReLU(),
     nn.Conv2d(16, 10, kernel_size=3, stride=2, padding=1),
     nn.ReLU(),
-    nn.AvgPool2d(2, 2),
+    nn.AdaptiveAvgPool2d(1),
     Lambda(lambda x: x.view(x.size(0), -1))
 )
+
 opt = optim.SGD(model.parameters(), lr=lr, momentum=0.9)
 fit(epochs, model, loss_func, opt, train_dl, valid_dl)
