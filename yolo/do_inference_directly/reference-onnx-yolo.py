@@ -109,7 +109,7 @@ def scale_coords(img1_shape, coords, img0_shape, ratio_pad=None):
     img0_shape: (height, width) of the original image
     ratio_pad: (ratio, (pad_w, pad_h)) from letterbox
     """
-    if ratio_pad is None:  # calculate from img0_shape
+    if ratio_pad is None:  # calculate from img0_shape if the caller doesn't provide `ratio_pad`
         gain = min(img1_shape[0] / img0_shape[0], img1_shape[1] / img0_shape[1])  # gain  = old / new
         pad = (img1_shape[1] - img0_shape[1] * gain) / 2, (img1_shape[0] - img0_shape[0] * gain) / 2  # wh padding
     else:
@@ -158,132 +158,141 @@ def main(onnx_model_path, image_path, class_names_path, conf_thres=0.25, iou_thr
         network_input_size = (input_shape[2], input_shape[3])
 
     # 3. Load and preprocess image
-    original_image = cv2.imread(image_path)
-    if original_image is None:
-        print(f"Error: Could not read image from {image_path}")
-        return
+    #original_image = cv2.imread(image_path)
+    cap = cv2.VideoCapture(0)
+    if not cap.isOpened():
+        print("Error: Could not open video stream.")
+        exit(1)
+    while True:
+        ret, original_image = cap.read()
+        if not ret:
+            print("Error: Could not read video stream.")
+            return
 
-    original_image_shape = original_image.shape[:2]  # H, W
+        original_image_shape = original_image.shape[:2]  # H, W
 
-    # Letterbox
-    image_letterboxed, ratio, (dw, dh) = letterbox(original_image, new_shape=network_input_size,
-                                                   auto=False)  # auto=False for exact shape
+        # Letterbox
+        image_letterboxed, ratio, (dw, dh) = letterbox(original_image, new_shape=network_input_size,
+                                                       auto=False)  # auto=False for exact shape
 
-    # Convert HWC to CHW, BGR to RGB, normalize
-    image_blob = image_letterboxed.transpose((2, 0, 1))[::-1]  # HWC to CHW, BGR to RGB
-    image_blob = np.ascontiguousarray(image_blob, dtype=np.float16) / 255.0
-    image_blob = image_blob[np.newaxis, ...]  # Add batch dimension (1, 3, H, W)
+        # Convert HWC to CHW, BGR to RGB, normalize
+        image_blob = image_letterboxed.transpose((2, 0, 1))[::-1]  # HWC to CHW, BGR to RGB
+        image_blob = np.ascontiguousarray(image_blob, dtype=np.float16) / 255.0
+        image_blob = image_blob[np.newaxis, ...]  # Add batch dimension (1, 3, H, W)
 
-    if image_blob.shape[2] != network_input_size[0] or image_blob.shape[3] != network_input_size[1]:
-        print(
-            f"Warning: Preprocessed image shape {image_blob.shape} does not match network input {network_input_size}. Resizing.")
-        # This case might happen if auto=True in letterbox and stride wasn't 1. Forcing size:
-        temp_image_blob = np.zeros((1, 3, network_input_size[0], network_input_size[1]), dtype=np.float32)
-        # A more robust way would be to resize image_blob if needed or ensure letterbox gives exact size
-        # For now, this assumes letterbox output matches network_input_size if auto=False
-        # If not, one might need to resize image_blob before feeding.
-        # This is a simplified handling.
+        if image_blob.shape[2] != network_input_size[0] or image_blob.shape[3] != network_input_size[1]:
+            print(
+                f"Warning: Preprocessed image shape {image_blob.shape} does not match network input {network_input_size}. Resizing.")
+            # This case might happen if auto=True in letterbox and stride wasn't 1. Forcing size:
+            temp_image_blob = np.zeros((1, 3, network_input_size[0], network_input_size[1]), dtype=np.float32)
+            # A more robust way would be to resize image_blob if needed or ensure letterbox gives exact size
+            # For now, this assumes letterbox output matches network_input_size if auto=False
+            # If not, one might need to resize image_blob before feeding.
+            # This is a simplified handling.
 
-    # 4. Run inference
-    start_time = time.time()
-    try:
-        outputs = session.run(None, {input_name: image_blob})[0]  # Output shape e.g., (1, 25200, 85)
-    except Exception as e:
-        print(f"Error during ONNX inference: {e}")
-        return
-    end_time = time.time()
-    print(f"Inference time: {end_time - start_time:.4f} seconds")
+        # 4. Run inference
+        start_time = time.time()
+        try:
+            outputs = session.run(None, {input_name: image_blob})[0]  # Output shape e.g., (1, 25200, 85)
+        except Exception as e:
+            print(f"Error during ONNX inference: {e}")
+            return
+        end_time = time.time()
+        print(f"Inference time: {end_time - start_time:.4f} seconds")
 
-    # 5. Postprocess outputs
-    # outputs shape: (batch_size, num_predictions, 5 + num_classes)
-    # num_predictions = (e.g., 25200 for 640x640 input)
-    # For each prediction: [cx, cy, w, h, obj_conf, class1_conf, ..., classN_conf]
+        # 5. Postprocess outputs
+        # outputs shape: (batch_size, num_predictions, 5 + num_classes)
+        # num_predictions = (e.g., 25200 for 640x640 input)
+        # For each prediction: [cx, cy, w, h, obj_conf, class1_conf, ..., classN_conf]
 
-    predictions = outputs[0]  # Remove batch dimension
+        predictions = outputs[0]  # Remove batch dimension
 
-    # Filter out detections with low objectness confidence
-    objectness_conf = predictions[:, 4]
-    conf_mask = (objectness_conf >= conf_thres)
+        # Filter out detections with low objectness confidence
+        objectness_conf = predictions[:, 4]
+        conf_mask = (objectness_conf >= conf_thres)
 
-    predictions = predictions[conf_mask]
-    objectness_conf = objectness_conf[conf_mask]
+        predictions = predictions[conf_mask]
+        objectness_conf = objectness_conf[conf_mask]
 
-    if not predictions.shape[0]:
-        print("No detections found after confidence threshold.")
-        # Display original image if no detections
-        cv2.imshow("Detections", original_image)
-        cv2.waitKey(0)
-        cv2.destroyAllWindows()
-        return
+#        if not predictions.shape[0]:
+#            print("No detections found after confidence threshold.")
+#            # Display original image if no detections
+#            cv2.imshow("Detections", original_image)
+#            cv2.waitKey(0)
+#            cv2.destroyAllWindows()
+#            return
 
-    # Get class scores and class indices
-    class_probs = predictions[:, 5:]
-    class_ids = np.argmax(class_probs, axis=1)
-    class_scores = np.max(class_probs, axis=1)  # Score of the most likely class
+        # Get class scores and class indices
+        class_probs = predictions[:, 5:]
+        class_ids = np.argmax(class_probs, axis=1)
+        class_scores = np.max(class_probs, axis=1)  # Score of the most likely class
 
-    # Overall confidence for filtering (objectness * class_score)
-    # You might choose to use just objectness_conf or this combined score for NMS
-    # For this example, we use class_scores directly for NMS if they represent P(class|object)
-    # and objectness_conf has already filtered P(object)
-    # A common approach is to use (objectness_conf * class_scores) as the final score for NMS.
-    scores_for_nms = objectness_conf * class_scores
+        # Overall confidence for filtering (objectness * class_score)
+        # You might choose to use just objectness_conf or this combined score for NMS
+        # For this example, we use class_scores directly for NMS if they represent P(class|object)
+        # and objectness_conf has already filtered P(object)
+        # A common approach is to use (objectness_conf * class_scores) as the final score for NMS.
+        scores_for_nms = objectness_conf * class_scores
 
-    # Convert boxes from (center_x, center_y, width, height) to (x1, y1, x2, y2)
-    # Coordinates are relative to the letterboxed image (network_input_size)
-    boxes_xywh = predictions[:, :4]
-    boxes_xyxy = xywh2xyxy(boxes_xywh)
+        # Convert boxes from (center_x, center_y, width, height) to (x1, y1, x2, y2)
+        # Coordinates are relative to the letterboxed image (network_input_size)
+        boxes_xywh = predictions[:, :4]
+        boxes_xyxy = xywh2xyxy(boxes_xywh)
 
-    # Perform NMS per class
-    final_detections = []
-    unique_class_ids = np.unique(class_ids)
+        # Perform NMS per class
+        final_detections = []
+        unique_class_ids = np.unique(class_ids)
 
-    for class_id in unique_class_ids:
-        class_mask = (class_ids == class_id)
+        for class_id in unique_class_ids:
+            class_mask = (class_ids == class_id)
 
-        class_boxes = boxes_xyxy[class_mask]
-        class_scores_for_nms = scores_for_nms[class_mask]
+            class_boxes = boxes_xyxy[class_mask]
+            class_scores_for_nms = scores_for_nms[class_mask]
 
-        if len(class_boxes) == 0:
-            continue
+            if len(class_boxes) == 0:
+                continue
 
-        keep_indices = non_max_suppression(class_boxes, class_scores_for_nms, iou_thres)
+            keep_indices = non_max_suppression(class_boxes, class_scores_for_nms, iou_thres)
 
-        for idx in keep_indices:
-            box = class_boxes[idx]
-            score = class_scores_for_nms[idx]
-            final_detections.append({
-                "box": box,  # (x1, y1, x2, y2) for letterboxed image
-                "score": score,
-                "class_id": class_id
-            })
+            for idx in keep_indices:
+                box = class_boxes[idx]
+                score = class_scores_for_nms[idx]
+                final_detections.append({
+                    "box": box,  # (x1, y1, x2, y2) for letterboxed image
+                    "score": score,
+                    "class_id": class_id
+                })
 
-    if not final_detections:
-        print("No detections found after NMS.")
-    else:
-        print(f"Found {len(final_detections)} detections after NMS.")
+        if not final_detections:
+            print("No detections found after NMS.")
+        else:
+            print(f"Found {len(final_detections)} detections after NMS.")
 
-    # 6. Scale coordinates and draw boxes on the original image
-    # Create a copy of the original image to draw on
-    output_image = original_image.copy()
+        # 6. Scale coordinates and draw boxes on the original image
+        # Create a copy of the original image to draw on
+        output_image = original_image.copy()
 
-    for det in final_detections:
-        box = np.array([det["box"]]).astype(np.float32)  # Has to be 2D for scale_coords
-        scaled_box = scale_coords(network_input_size, box, original_image_shape, ratio_pad=(ratio, (dw, dh)))[0]
+        for det in final_detections:
+            box = np.array([det["box"]]).astype(np.float32)  # Has to be 2D for scale_coords
+            scaled_box = scale_coords(network_input_size, box, original_image_shape, ratio_pad=(ratio, (dw, dh)))[0]
 
-        x1, y1, x2, y2 = map(int, scaled_box)
-        score = det["score"]
-        class_id = det["class_id"]
-        label = f"{class_names[class_id]}: {score:.2f}"
+            x1, y1, x2, y2 = map(int, scaled_box)
+            score = det["score"]
+            class_id = det["class_id"]
+            label = f"{class_names[class_id]}: {score:.2f}"
 
-        # Draw rectangle
-        cv2.rectangle(output_image, (x1, y1), (x2, y2), (0, 255, 0), 2)
-        # Put label
-        cv2.putText(output_image, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+            # Draw rectangle
+            cv2.rectangle(output_image, (x1, y1), (x2, y2), (0, 255, 0), 2)
+            # Put label
+            cv2.putText(output_image, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
 
-    # 7. Display/Save image
-    cv2.imshow("Detections", output_image)
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
+        # 7. Display/Save image
+        cv2.imshow("Detections", output_image)
+        # Exit loop if 'q' is pressed
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            print("Exiting...")
+            cv2.destroyAllWindows()
+            break
 
     # Example: Save the output image
     # output_image_path = image_path.replace('.', '_detected.')
@@ -298,7 +307,7 @@ if __name__ == '__main__':
     parser.add_argument("--class_names", type=str, default="/Users/sunjoo/workspace/yolo/yolov5/yolov5-7.0/data/coco.yaml",
                         help="Path to YAML file with class names (e.g., coco.yaml).", )
     parser.add_argument("--conf_thres", type=float, default=0.25, help="Object confidence threshold.")
-    parser.add_argument("--iou_thres", type=float, default=0.45, help="IOU threshold for NMS.")
+    parser.add_argument("--iou_thres", type=float, default=0.80, help="IOU threshold for NMS.")
 
     args = parser.parse_args()
 
