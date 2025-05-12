@@ -129,12 +129,17 @@ def scale_coords(img1_shape, coords, img0_shape, ratio_pad=None):
 def main(onnx_model_path, image_path, class_names_path, conf_thres=0.25, iou_thres=0.45):
     # 1. Load class names
     if class_names_path:
-        with open(class_names_path, 'r') as f:
-            class_names = yaml.safe_load(f)['names']
+        try:
+            with open(class_names_path, 'r') as f:
+                class_names = yaml.safe_load(f)['names']
+        except Exception as e:
+            print(f"Warning: Could not load class names from {class_names_path}: {e}")
+            class_names = [f'class_{i}' for i in range(80)]  # Default to 80 classes
+            print("Using generic class names: class_0, class_1, ...")
     else:
         # Default COCO class names (first 80)
         class_names = [f'class_{i}' for i in range(80)]
-        print("Warning: class_names_path not provided, using default class names.")
+        print("Warning: class_names_path not provided, using default generic class names.")
 
     # 2. Initialize ONNX runtime session
     try:
@@ -158,37 +163,54 @@ def main(onnx_model_path, image_path, class_names_path, conf_thres=0.25, iou_thr
         network_input_size = (input_shape[2], input_shape[3])
 
     # 3. Load and preprocess image
-    #original_image = cv2.imread(image_path)
-    cap = cv2.VideoCapture(0)
+    # If you want to use a static image, you'd modify this part:
+    # original_image = cv2.imread(image_path)
+    # if original_image is None:
+    #     print(f"Error: Could not read image from {image_path}")
+    #     return
+    # ... and then process this single original_image instead of the loop.
+
+    cap = cv2.VideoCapture(0)  # Using webcam
     if not cap.isOpened():
-        print("Error: Could not open video stream.")
-        exit(1)
+        print("Error: Could not open video stream from webcam.")
+        # Fallback to image_path if provided and webcam fails
+        if image_path:
+            print(f"Attempting to load image from: {image_path}")
+            original_image = cv2.imread(image_path)
+            if original_image is None:
+                print(f"Error: Could not read image from {image_path} either.")
+                return
+            # Process single image (needs to be structured outside the loop or adapt the loop)
+            # For simplicity, this example will exit if webcam fails.
+            # To process a single image, you'd call the processing logic once here.
+            print("Webcam failed. To process a single image, please adapt the script's main loop.")
+            return  # Or adapt to process single image
+        else:
+            return
+
+    print("Starting webcam feed. Press 'q' to quit.")
     while True:
         ret, original_image = cap.read()
         if not ret:
-            print("Error: Could not read video stream.")
-            return
+            print("Error: Could not read frame from video stream. Exiting loop.")
+            break  # Changed from return to break to allow cleanup
 
         original_image_shape = original_image.shape[:2]  # H, W
 
         # Letterbox
         image_letterboxed, ratio, (dw, dh) = letterbox(original_image, new_shape=network_input_size,
-                                                       auto=False)  # auto=False for exact shape
+                                                       auto=False,
+                                                       scaleup=True)  # Ensure scaleup is True, auto=False for exact shape
 
         # Convert HWC to CHW, BGR to RGB, normalize
         image_blob = image_letterboxed.transpose((2, 0, 1))[::-1]  # HWC to CHW, BGR to RGB
-        image_blob = np.ascontiguousarray(image_blob, dtype=np.float16) / 255.0
+        # MODIFIED: Changed dtype to np.float32, more common for ONNX models
+        image_blob = np.ascontiguousarray(image_blob, dtype=np.float32) / 255.0
         image_blob = image_blob[np.newaxis, ...]  # Add batch dimension (1, 3, H, W)
 
-        if image_blob.shape[2] != network_input_size[0] or image_blob.shape[3] != network_input_size[1]:
-            print(
-                f"Warning: Preprocessed image shape {image_blob.shape} does not match network input {network_input_size}. Resizing.")
-            # This case might happen if auto=True in letterbox and stride wasn't 1. Forcing size:
-            temp_image_blob = np.zeros((1, 3, network_input_size[0], network_input_size[1]), dtype=np.float32)
-            # A more robust way would be to resize image_blob if needed or ensure letterbox gives exact size
-            # For now, this assumes letterbox output matches network_input_size if auto=False
-            # If not, one might need to resize image_blob before feeding.
-            # This is a simplified handling.
+        # REMOVED: Warning block for shape mismatch, as letterbox with auto=False should give exact size.
+        # if image_blob.shape[2] != network_input_size[0] or image_blob.shape[3] != network_input_size[1]:
+        #    ... (this block was removed) ...
 
         # 4. Run inference
         start_time = time.time()
@@ -196,56 +218,43 @@ def main(onnx_model_path, image_path, class_names_path, conf_thres=0.25, iou_thr
             outputs = session.run(None, {input_name: image_blob})[0]  # Output shape e.g., (1, 25200, 85)
         except Exception as e:
             print(f"Error during ONNX inference: {e}")
+            cap.release()
+            cv2.destroyAllWindows()
             return
         end_time = time.time()
-        print(f"Inference time: {end_time - start_time:.4f} seconds")
+        # print(f"Inference time: {end_time - start_time:.4f} seconds") # Optional: print inference time
 
         # 5. Postprocess outputs
-        # outputs shape: (batch_size, num_predictions, 5 + num_classes)
-        # num_predictions = (e.g., 25200 for 640x640 input)
-        # For each prediction: [cx, cy, w, h, obj_conf, class1_conf, ..., classN_conf]
-
         predictions = outputs[0]  # Remove batch dimension
 
-        # Filter out detections with low objectness confidence
         objectness_conf = predictions[:, 4]
         conf_mask = (objectness_conf >= conf_thres)
 
         predictions = predictions[conf_mask]
         objectness_conf = objectness_conf[conf_mask]
 
-#        if not predictions.shape[0]:
-#            print("No detections found after confidence threshold.")
-#            # Display original image if no detections
-#            cv2.imshow("Detections", original_image)
-#            cv2.waitKey(0)
-#            cv2.destroyAllWindows()
-#            return
+        if not predictions.shape[0]:
+            # print("No detections found after confidence threshold.") # Optional: print if no detections
+            cv2.imshow("Detections", original_image)  # Show original image if no detections
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                print("Exiting...")
+                break
+            continue  # Continue to next frame
 
-        # Get class scores and class indices
         class_probs = predictions[:, 5:]
         class_ids = np.argmax(class_probs, axis=1)
-        class_scores = np.max(class_probs, axis=1)  # Score of the most likely class
+        class_scores = np.max(class_probs, axis=1)
 
-        # Overall confidence for filtering (objectness * class_score)
-        # You might choose to use just objectness_conf or this combined score for NMS
-        # For this example, we use class_scores directly for NMS if they represent P(class|object)
-        # and objectness_conf has already filtered P(object)
-        # A common approach is to use (objectness_conf * class_scores) as the final score for NMS.
         scores_for_nms = objectness_conf * class_scores
 
-        # Convert boxes from (center_x, center_y, width, height) to (x1, y1, x2, y2)
-        # Coordinates are relative to the letterboxed image (network_input_size)
         boxes_xywh = predictions[:, :4]
         boxes_xyxy = xywh2xyxy(boxes_xywh)
 
-        # Perform NMS per class
         final_detections = []
         unique_class_ids = np.unique(class_ids)
 
         for class_id in unique_class_ids:
             class_mask = (class_ids == class_id)
-
             class_boxes = boxes_xyxy[class_mask]
             class_scores_for_nms = scores_for_nms[class_mask]
 
@@ -257,58 +266,72 @@ def main(onnx_model_path, image_path, class_names_path, conf_thres=0.25, iou_thr
             for idx in keep_indices:
                 box = class_boxes[idx]
                 score = class_scores_for_nms[idx]
-                final_detections.append({
-                    "box": box,  # (x1, y1, x2, y2) for letterboxed image
-                    "score": score,
-                    "class_id": class_id
-                })
+                # Filter again by final score if needed, though NMS uses it
+                if score >= conf_thres:  # Ensure final combined score also meets threshold
+                    final_detections.append({
+                        "box": box,
+                        "score": score,
+                        "class_id": class_id
+                    })
 
-        if not final_detections:
-            print("No detections found after NMS.")
-        else:
-            print(f"Found {len(final_detections)} detections after NMS.")
+        # Sort detections by score for consistent drawing order (optional)
+        # final_detections = sorted(final_detections, key=lambda x: x['score'], reverse=True)
 
-        # 6. Scale coordinates and draw boxes on the original image
-        # Create a copy of the original image to draw on
+        # if not final_detections:
+        #     print("No detections found after NMS.") # Optional
+
         output_image = original_image.copy()
 
         for det in final_detections:
-            box = np.array([det["box"]]).astype(np.float32)  # Has to be 2D for scale_coords
-            scaled_box = scale_coords(network_input_size, box, original_image_shape, ratio_pad=(ratio, (dw, dh)))[0]
+            box_lb = np.array([det["box"]]).astype(np.float32)  # Coords are for letterboxed image
+
+            # Scale coordinates from letterboxed image to original image
+            scaled_box = scale_coords(network_input_size, box_lb, original_image_shape, ratio_pad=(ratio, (dw, dh)))[0]
 
             x1, y1, x2, y2 = map(int, scaled_box)
             score = det["score"]
             class_id = det["class_id"]
-            label = f"{class_names[class_id]}: {score:.2f}"
 
-            # Draw rectangle
+            if class_id < len(class_names):
+                label = f"{class_names[class_id]}: {score:.2f}"
+            else:
+                label = f"class_{class_id}: {score:.2f}"  # Fallback if class_id is out of bounds
+
             cv2.rectangle(output_image, (x1, y1), (x2, y2), (0, 255, 0), 2)
-            # Put label
-            cv2.putText(output_image, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+            cv2.putText(output_image, label, (x1, y1 - 10 if y1 - 10 > 10 else y1 + 10),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
 
-        # 7. Display/Save image
         cv2.imshow("Detections", output_image)
-        # Exit loop if 'q' is pressed
         if cv2.waitKey(1) & 0xFF == ord('q'):
             print("Exiting...")
-            cv2.destroyAllWindows()
             break
 
-    # Example: Save the output image
-    # output_image_path = image_path.replace('.', '_detected.')
-    # cv2.imwrite(output_image_path, output_image)
-    # print(f"Processed image saved to {output_image_path}")
+    cap.release()
+    cv2.destroyAllWindows()
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description="YOLOv5 ONNX Inference Script")
-    parser.add_argument("--onnx_model", type=str, required=True, help="Path to the ONNX model file.", default="yolov5n.onnx")
-    parser.add_argument("--image", type=str, required=True, help="Path to the input image.", default="bus.jpg")
-    parser.add_argument("--class_names", type=str, default="/Users/sunjoo/workspace/yolo/yolov5/yolov5-7.0/data/coco.yaml",
-                        help="Path to YAML file with class names (e.g., coco.yaml).", )
-    parser.add_argument("--conf_thres", type=float, default=0.25, help="Object confidence threshold.")
-    parser.add_argument("--iou_thres", type=float, default=0.80, help="IOU threshold for NMS.")
+    parser = argparse.ArgumentParser(description="YOLO ONNX Inference Script for Webcam")
+    # MODIFIED: Changed default ONNX model path
+    parser.add_argument("--onnx_model", type=str, default="yolo11n.onnx",
+                        help="Path to the ONNX model file.")
+    # MODIFIED: Made --image optional and removed its default, as webcam is primary
+    parser.add_argument("--image", type=str, default=None,
+                        help="Optional: Path to a single input image (if webcam fails or for single image processing).")
+    parser.add_argument("--class_names", type=str, default="coco.yaml",
+                        # Provide a common default or expect user to have it
+                        help="Path to YAML file with class names (e.g., coco.yaml from YOLOv5 repo).")
+    parser.add_argument("--conf_thres", type=float, default=0.25,
+                        help="Object confidence threshold.")
+    parser.add_argument("--iou_thres", type=float, default=0.45,  # Adjusted to a more common NMS threshold
+                        help="IOU threshold for NMS.")
 
     args = parser.parse_args()
+
+    # A note on class_names_path:
+    # If 'coco.yaml' is not in the same directory, you might need to provide the full path
+    # or place coco.yaml (e.g., from a YOLOv5 repository: yolov5/data/coco.yaml)
+    # in the same directory as this script.
+    # Example: --class_names /path/to/your/yolov5/data/coco.yaml
 
     main(args.onnx_model, args.image, args.class_names, args.conf_thres, args.iou_thres)
