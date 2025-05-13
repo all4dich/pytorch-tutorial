@@ -236,7 +236,7 @@ def main(onnx_model_path, image_path, class_names_path, conf_thres=0.25, iou_thr
 
         # Extract bounding boxes (cx, cy, w, h) and combined class scores
         boxes_xywh = predictions[:, :4]
-        class_scores_combined = predictions[:, 4:]  # Shape: (num_predictions, num_classes)
+        class_scores_combined = predictions[:, 4:]  # Shape: (num_predictions, num_classes), Maybe [n, 80]
 
         # Find the class ID and the score for the class with the highest confidence for each prediction
         class_ids = np.argmax(class_scores_combined, axis=1)

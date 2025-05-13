@@ -205,7 +205,7 @@ def main(onnx_model_path, image_path, class_names_path, conf_thres=0.25, iou_thr
         # Convert HWC to CHW, BGR to RGB, normalize
         image_blob = image_letterboxed.transpose((2, 0, 1))[::-1]  # HWC to CHW, BGR to RGB
         # MODIFIED: Changed dtype to np.float32, more common for ONNX models
-        image_blob = np.ascontiguousarray(image_blob, dtype=np.float32) / 255.0
+        image_blob = np.ascontiguousarray(image_blob, dtype=np.float16) / 255.0
         image_blob = image_blob[np.newaxis, ...]  # Add batch dimension (1, 3, H, W)
 
         # REMOVED: Warning block for shape mismatch, as letterbox with auto=False should give exact size.
