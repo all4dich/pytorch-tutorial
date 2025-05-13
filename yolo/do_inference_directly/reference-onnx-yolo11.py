@@ -6,6 +6,8 @@ import argparse
 import yaml  # For loading class names
 import time  # For benchmarking
 
+from torch.cpu import stream
+
 
 def letterbox(img, new_shape=(640, 640), color=(114, 114, 114), auto=True, scaleFill=False, scaleup=True, stride=32):
     """
@@ -127,7 +129,7 @@ def scale_coords(img1_shape, coords, img0_shape, ratio_pad=None):
     return coords
 
 
-def main(onnx_model_path, image_path, class_names_path, conf_thres=0.25, iou_thres=0.45):
+def main(onnx_model_path, image_path, class_names_path, conf_thres=0.25, iou_thres=0.45, source=0):
     # 1. Load class names
     if class_names_path:
         try:
@@ -167,7 +169,8 @@ def main(onnx_model_path, image_path, class_names_path, conf_thres=0.25, iou_thr
         network_input_size = (input_shape[2], input_shape[3])
     print(f"Network input size set to: {network_input_size}")
 
-    cap = cv2.VideoCapture(0)
+    stream_source = int(source)
+    cap = cv2.VideoCapture(stream_source)
     if not cap.isOpened():
         print("Error: Could not open video stream from webcam.")
         if image_path:
@@ -334,6 +337,8 @@ if __name__ == '__main__':
                         help="Object confidence threshold.")
     parser.add_argument("--iou_thres", type=float, default=0.45,
                         help="IOU threshold for NMS.")
+    parser.add_argument("--source", type=str,default=0,
+                        help="Video or image sourc")
 
     args = parser.parse_args()
-    main(args.onnx_model, args.image, args.class_names, args.conf_thres, args.iou_thres)
+    main(args.onnx_model, args.image, args.class_names, args.conf_thres, args.iou_thres, args.source)
