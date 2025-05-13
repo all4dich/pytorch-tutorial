@@ -1,5 +1,6 @@
 import cv2
 import numpy as np
+from onnxruntime import SessionOptions
 import onnxruntime
 import argparse
 import yaml  # For loading class names
@@ -143,7 +144,12 @@ def main(onnx_model_path, image_path, class_names_path, conf_thres=0.25, iou_thr
 
     # 2. Initialize ONNX runtime session
     try:
+        sess_options = SessionOptions()
+        sess_options.log_severity_level = 0
+        sess_options.log_verbosity_level = 0  # Increase verbosity
+        # sess_options.enable_profiling = True
         session = onnxruntime.InferenceSession(onnx_model_path,
+                                                sess_options=sess_options,
                                                providers=['CPUExecutionProvider'])  # Or ['CUDAExecutionProvider']
         print(f"ONNX model loaded from {onnx_model_path}")
     except Exception as e:
@@ -218,15 +224,15 @@ def main(onnx_model_path, image_path, class_names_path, conf_thres=0.25, iou_thr
         # Some models might output (batch_size, 4+num_classes, num_predictions).
         # If so, a transpose would be needed: e.g., model_outputs[0].transpose(0, 2, 1)
         # For yolo11n, verify its exact output dimensions. We assume (batch, num_preds, attrs) here.
-        predictions_with_batch = model_outputs[0]
+        predictions_with_batch = model_outputs[0] # 1, 84, 8400
 
         # Remove batch dimension
-        predictions = predictions_with_batch[0]  # Shape: (4 + num_classes, num_predictions)
+        predictions = predictions_with_batch[0]  # Shape: (84, 8400) => (4 + num_classes, num_predictions)
 
-        predictions = predictions.transpose(1,0)
+        predictions = predictions.transpose(1,0) # (84,8400) => (8400,84)
 
         # Validate the number of attributes per prediction
-        expected_attributes = 4 + len(class_names)
+        expected_attributes = 4 + len(class_names) #expected_attributes: 84
         if predictions.shape[1] != expected_attributes:
             print(f"Warning: Output shape mismatch. Expected {expected_attributes} attributes "
                   f"(4 bbox + {len(class_names)} classes), but got {predictions.shape[1]}. "
@@ -235,15 +241,15 @@ def main(onnx_model_path, image_path, class_names_path, conf_thres=0.25, iou_thr
             # For now, we'll try to proceed but this is a critical check.
 
         # Extract bounding boxes (cx, cy, w, h) and combined class scores
-        boxes_xywh = predictions[:, :4]
-        class_scores_combined = predictions[:, 4:]  # Shape: (num_predictions, num_classes), Maybe [n, 80]
+        boxes_xywh = predictions[:, :4] #predictions.shape : (8400,84), boxes_xywh.shape : (8400,4)
+        class_scores_combined = predictions[:, 4:]  # Shape: (num_predictions, num_classes), Maybe [8400, 80]
 
         # Find the class ID and the score for the class with the highest confidence for each prediction
-        class_ids = np.argmax(class_scores_combined, axis=1)
-        max_scores = np.max(class_scores_combined, axis=1)  # This is P(class_i|obj)P(obj)
+        class_ids = np.argmax(class_scores_combined, axis=1) # (8400, )
+        max_scores = np.max(class_scores_combined, axis=1)  # This is P(class_i|obj)P(obj), (8400, )
 
         # Apply confidence threshold using the max scores
-        conf_mask = (max_scores >= conf_thres)
+        conf_mask = (max_scores >= conf_thres) # (8400,): `True` or `False`
 
         if not np.any(conf_mask):
             cv2.imshow("Detections", original_image)
@@ -253,10 +259,10 @@ def main(onnx_model_path, image_path, class_names_path, conf_thres=0.25, iou_thr
             continue
 
         # Filter detections based on confidence
-        boxes_xywh_filtered = boxes_xywh[conf_mask]
-        class_ids_filtered = class_ids[conf_mask]
+        boxes_xywh_filtered = boxes_xywh[conf_mask] # boxes_xywh.shape: (8400,4), boxes_xywh_filtered: (n=18,4)
+        class_ids_filtered = class_ids[conf_mask] # class_ids.shape: (8400,), class_ids_filtered: (18,)
         # These are the scores to be used for NMS, already filtered by conf_thres
-        scores_for_nms_input = max_scores[conf_mask]
+        scores_for_nms_input = max_scores[conf_mask] # (18, 0)
 
         # Convert boxes from (cx, cy, w, h) to (x1, y1, x2, y2)
         # If yolo11n directly outputs x1,y1,x2,y2, this conversion is not needed
