@@ -276,6 +276,7 @@ def main(onnx_model_path, image_path, class_names_path, conf_thres=0.25, iou_thr
         # Perform NMS per class
         unique_class_ids_after_conf = np.unique(class_ids_filtered)
 
+        # Handle multiple detections per class
         for class_id_val in unique_class_ids_after_conf:
             # Create a mask for the current class ID among the confidence-filtered detections
             current_class_mask = (class_ids_filtered == class_id_val)
