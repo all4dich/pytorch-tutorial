@@ -296,7 +296,7 @@ def main(onnx_model_path, image_path, class_names_path, conf_thres=0.25, iou_thr
         conf_mask = (max_scores >= conf_thres)
 
         if not np.any(conf_mask):
-            cv2.imshow("Detections", original_image)
+            cv2.imshow("Segmentations", original_image)
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 print("Exiting...")
                 break

@@ -235,7 +235,7 @@ def main(onnx_model_path, image_path, class_names_path, conf_thres=0.25, iou_thr
 
         if not predictions.shape[0]:
             # print("No detections found after confidence threshold.") # Optional: print if no detections
-            cv2.imshow("Detections", original_image)  # Show original image if no detections
+            cv2.imshow("Detections with anchors", original_image)  # Show original image if no detections
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 print("Exiting...")
                 break
@@ -301,7 +301,7 @@ def main(onnx_model_path, image_path, class_names_path, conf_thres=0.25, iou_thr
             cv2.putText(output_image, label, (x1, y1 - 10 if y1 - 10 > 10 else y1 + 10),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
 
-        cv2.imshow("Detections", output_image)
+        cv2.imshow("Detections with anchors", output_image)
         if cv2.waitKey(1) & 0xFF == ord('q'):
             print("Exiting...")
             break
