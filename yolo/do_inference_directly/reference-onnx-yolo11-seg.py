@@ -5,7 +5,7 @@ import onnxruntime
 import argparse
 import yaml  # For loading class names
 import time  # For benchmarking
-
+from collections import Counter
 
 # Removed: from torch.cpu import stream (unused import)
 
@@ -551,6 +551,8 @@ def main(onnx_model_path, image_path, class_names_path, conf_thres=0.25, iou_thr
         output_image = cv2.addWeighted(output_image, 1.0, mask_color_overlay, 0.4, 0)
 
         # Draw bounding boxes and labels on top of the blended image
+        all_class_names = []
+        all_class_ids = []
         for det in final_detections:
             # Get the box coordinates (which are currently relative to the letterboxed image)
             box_lb = np.array([det["box"]]).astype(np.float32)
@@ -568,8 +570,10 @@ def main(onnx_model_path, image_path, class_names_path, conf_thres=0.25, iou_thr
             # Create the label text
             if class_id < len(class_names):
                 label_text = f"{class_names[class_id]}: {score:.2f}"
+                all_class_names.append(class_names[class_id])
             else:
                 label_text = f"class_{class_id}: {score:.2f}" # Fallback if class ID is out of bounds
+                all_class_ids.append(class_id)
 
             # Draw bounding box rectangle
             # Use the same color as the mask for consistency
@@ -583,6 +587,29 @@ def main(onnx_model_path, image_path, class_names_path, conf_thres=0.25, iou_thr
 
         # Display the final output image with segmentations, boxes, and labels
         cv2.imshow("Segmentations", output_image) # Changed window title
+        # Count occurrences of detected classes
+        counter_class_name = Counter(all_class_names)
+        counter_class_id = Counter(all_class_ids)
+        class_name_status = ""
+        class_id_status = ""
+
+        # Format class names with their counts
+        for class_name in sorted(counter_class_name.keys()):
+            class_name_status += f"{class_name}: {counter_class_name[class_name]}, "
+
+        # Format class IDs with their counts (for classes not in the class_names list)
+        for class_id in sorted(counter_class_id.keys()):
+            class_id_status += f"class_{class_id}: {counter_class_id[class_id]}, "
+
+        # Remove trailing comma and space if present
+        class_name_status = class_name_status.rstrip(", ")
+        class_id_status = class_id_status.rstrip(", ")
+
+        # Print detection summary
+        if class_name_status:
+            print(f"Detected classes: {class_name_status}")
+        if class_id_status:
+            print(f"Detected unknown classes: {class_id_status}")
 
         # Check for 'q' key press to exit the loop
         if cv2.waitKey(1) & 0xFF == ord('q'):
